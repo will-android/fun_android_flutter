@@ -1,7 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:fun_android/config/router_config.dart';
 import 'package:fun_android/generated/i18n.dart';
-import 'package:fun_android/view_model/colletion_model.dart';
+import 'package:fun_android/ui/widget/favourite_animation.dart';
 import 'package:oktoast/oktoast.dart';
 
 import 'dialog_helper.dart';
@@ -10,16 +10,27 @@ import 'dialog_helper.dart';
 /// 由于存在递归操作,所以抽取为方法,而且多出调用
 ///
 /// 多个页面使用该方法,目前这种方式并不优雅,抽取位置有待商榷
-collectArticle(context, CollectionModel model) async {
+addFavourites(context, model, tag, {playAnim:true}) async {
   await model.collect();
+  //未登录
   if (model.unAuthorized) {
-    //未登录
     if (await DialogHelper.showLoginDialog(context)) {
       var success = await Navigator.pushNamed(context, RouteName.login);
-      if (success ?? false) collectArticle(context, model);
+      if (success ?? false) addFavourites(context, model, tag);
     }
   } else if (model.error) {
     //失败
     showToast(S.of(context).loadFailed);
+  } else {
+    if (playAnim) {
+      ///接口调用成功播放动画
+      Navigator.push(
+          context,
+          HeroDialogRoute(
+              builder: (_) => FavouriteAnimationWidget(
+                    tag: tag,
+                    add: model.article.collect,
+                  )));
+    }
   }
 }

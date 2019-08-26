@@ -3,17 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:fun_android/generated/i18n.dart';
-import 'package:fun_android/ui/helper/collection_helper.dart';
-import 'package:fun_android/ui/widget/article_list_Item.dart';
+import 'package:fun_android/ui/helper/favourite_helper.dart';
 import 'package:provider/provider.dart';
-import 'package:fun_android/config/resource_mananger.dart';
 import 'package:fun_android/model/article.dart';
-import 'package:fun_android/provider/provider_widget.dart';
-import 'package:fun_android/ui/helper/dialog_helper.dart';
-import 'package:fun_android/ui/widget/like_animation.dart';
 import 'package:fun_android/utils/string_utils.dart';
 import 'package:fun_android/utils/third_app_utils.dart';
-import 'package:fun_android/view_model/colletion_model.dart';
+import 'package:fun_android/view_model/favourite_model.dart';
 import 'package:fun_android/view_model/theme_model.dart';
 import 'package:share/share.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -29,11 +24,8 @@ class ArticleDetailPage extends StatefulWidget {
 }
 
 class _WebViewState extends State<ArticleDetailPage> {
-  WebViewController _controller;
-
+  WebViewController _webViewController;
   Completer<bool> _finishedCompleter = Completer();
-
-  CollectionAnimationModel _animationModel = CollectionAnimationModel();
 
   @override
   Widget build(BuildContext context) {
@@ -51,41 +43,53 @@ class _WebViewState extends State<ArticleDetailPage> {
             },
           ),
           WebViewPopupMenu(
-            _controller,
+            _webViewController,
             widget.article,
-            animationModel: _animationModel,
           )
         ],
       ),
       body: SafeArea(
         bottom: false,
-        child: ProviderWidget<CollectionAnimationModel>(
-            model: _animationModel,
-            builder: (context, model, child) => Stack(
-                  children: <Widget>[
-                    child,
-                    LikeAnimatedWidget(),
-                  ],
-                ),
-            child: WebView(
-              // 初始化加载的url
-              initialUrl: widget.article.link,
-              // 加载js
-              javascriptMode: JavascriptMode.unrestricted,
-//              navigationDelegate: (NavigationRequest request) {
-//                return NavigationDecision.navigate;
-//              },
-              onWebViewCreated: (WebViewController controller) {
-                _controller = controller;
-                _controller.currentUrl().then((url) {
-                  debugPrint('返回当前$url');
-                });
-              },
-              onPageFinished: (String value) {
-                debugPrint('加载完成: $value');
-                _finishedCompleter.complete(true);
-              },
-            )),
+        child: WebView(
+          // 初始化加载的url
+          initialUrl: widget.article.link,
+          // 加载js
+          javascriptMode: JavascriptMode.unrestricted,
+
+          navigationDelegate: (NavigationRequest request) {
+            ///TODO isForMainFrame为false,页面不跳转.导致网页内很多链接点击没效果
+            debugPrint('导航$request');
+            return NavigationDecision.navigate;
+          },
+          onWebViewCreated: (WebViewController controller) {
+            _webViewController = controller;
+            _webViewController.currentUrl().then((url) {
+              debugPrint('返回当前$url');
+            });
+          },
+          onPageFinished: (String value) async {
+            debugPrint('加载完成: $value');
+            if (!_finishedCompleter.isCompleted)
+              _finishedCompleter.complete(true);
+          },
+        ),
+      ),
+      bottomNavigationBar: BottomAppBar(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: <Widget>[
+            IconButton(
+                icon: Icon(Icons.arrow_back_ios),
+                onPressed: () {
+                  _webViewController.goBack();
+                }),
+            IconButton(
+                icon: Icon(Icons.arrow_forward_ios),
+                onPressed: () {
+                  _webViewController.goForward();
+                }),
+          ],
+        ),
       ),
       floatingActionButton: FutureBuilder<String>(
         future: ThirdAppUtils.canOpenApp(widget.article.link),
@@ -142,20 +146,20 @@ class WebViewTitle extends StatelessWidget {
 class WebViewPopupMenu extends StatelessWidget {
   final WebViewController controller;
   final Article article;
-  final CollectionAnimationModel animationModel;
 
-  WebViewPopupMenu(this.controller, this.article, {this.animationModel});
+  WebViewPopupMenu(this.controller, this.article);
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider<CollectionModel>.value(
-            value: CollectionModel(article, animationModel: animationModel)),
+        ChangeNotifierProvider<FavouriteModel>.value(
+          value: FavouriteModel(article),
+        )
       ],
       child: Builder(
         builder: (context) {
-          var collectionModel = Provider.of<CollectionModel>(context);
+          var favouriteModel = Provider.of<FavouriteModel>(context);
           return PopupMenuButton(
             itemBuilder: (context) => <PopupMenuEntry<int>>[
               PopupMenuItem(
@@ -164,7 +168,7 @@ class WebViewPopupMenu extends StatelessWidget {
                 value: 0,
               ),
               PopupMenuItem(
-                child: (collectionModel.article.collect ?? true)
+                child: (favouriteModel.article.collect ?? true)
                     ? WebViewPopupMenuItem(Icons.favorite, S.of(context).unLike,
                         color: Colors.redAccent[100])
                     : WebViewPopupMenuItem(
@@ -183,7 +187,7 @@ class WebViewPopupMenu extends StatelessWidget {
                   controller.reload();
                   break;
                 case 1:
-                  collectArticle(context, collectionModel);
+                  addFavourites(context, favouriteModel, 'detail');
                   break;
                 case 2:
                   Share.share(article.link, subject: article.title);
@@ -215,7 +219,7 @@ class WebViewPopupMenuItem<T> extends StatelessWidget {
         Icon(
           iconData,
           size: 20,
-          color: color,
+          color: color ?? Theme.of(context).textTheme.body1.color,
         ),
         SizedBox(
           width: 20,
